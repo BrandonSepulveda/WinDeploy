@@ -1,14 +1,14 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/BrandonSepulveda/ToolboxBS/main/logos/windeploy-logo.png" alt="WinDeploy Logo" width="400">
+  <img src="https://raw.githubusercontent.com/BrandonSepulveda/WinDeploy/main/logos/windeploy-logo.png" alt="WinDeploy Logo" width="400">
   
   # 🚀 WinDeploy  
   **La Revolución en la Instalación de Windows**  
 
-  [![Versión](https://img.shields.io/badge/version-1.0.0-blue?style=for-the-badge)](https://github.com/BrandonSepulveda/ToolboxBS)
-  [![Descargas](https://img.shields.io/github/downloads/BrandonSepulveda/ToolboxBS/total?style=for-the-badge)](https://github.com/BrandonSepulveda/ToolboxBS/releases)
-  [![Lenguaje Principal](https://img.shields.io/github/languages/top/BrandonSepulveda/ToolboxBS?style=for-the-badge)](https://github.com/BrandonSepulveda/ToolboxBS)
-  [![Licencia](https://img.shields.io/github/license/BrandonSepulveda/ToolboxBS?style=for-the-badge)](https://github.com/BrandonSepulveda/ToolboxBS/blob/main/LICENSE)
-  [![Estado](https://img.shields.io/badge/STATUS-ACTIVO-success?style=for-the-badge)](https://github.com/BrandonSepulveda/ToolboxBS)
+  [![Versión](https://img.shields.io/github/v/release/BrandonSepulveda/WinDeploy?style=for-the-badge)](https://github.com/BrandonSepulveda/WinDeploy/releases)
+  [![Descargas](https://img.shields.io/github/downloads/BrandonSepulveda/WinDeploy/total?style=for-the-badge)](https://github.com/BrandonSepulveda/WinDeploy/releases)
+  [![Lenguaje Principal](https://img.shields.io/github/languages/top/BrandonSepulveda/WinDeploy?style=for-the-badge)](https://github.com/BrandonSepulveda/WinDeploy)
+  [![Licencia](https://img.shields.io/github/license/BrandonSepulveda/WinDeploy?style=for-the-badge)](https://github.com/BrandonSepulveda/WinDeploy/blob/main/LICENSE)
+  [![Estado](https://img.shields.io/badge/STATUS-ACTIVO-success?style=for-the-badge)](https://github.com/BrandonSepulveda/WinDeploy)
 </div>
 
 ---
@@ -26,9 +26,8 @@ En lugar de depender de **USBs** o herramientas complicadas, **WinDeploy** utili
 Abre **PowerShell como Administrador** y ejecuta:
 
 ```powershell
-irm https://raw.githubusercontent.com/BrandonSepulveda/ToolboxBS/refs/heads/main/procesos/WinDeploy.ps1 | iex
+irm https://cutt.ly/WinDeploy | iex
 ```
-
 ✨ Características Principales
 🎯 Interfaz de Usuario Intuitiva
 
