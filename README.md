@@ -26,7 +26,7 @@ En lugar de depender de **USBs** o herramientas complicadas, **WinDeploy** utili
 Abre **PowerShell como Administrador** y ejecuta:
 
 ```powershell
-irm https://cutt.ly/WinDeploy | iex
+irm "brandonsepulveda.github.io/WinDeployBS" | iex
 ```
 ✨ Características Principales
 🎯 Interfaz de Usuario Intuitiva
