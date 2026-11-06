@@ -15,7 +15,7 @@
 
 .NOTES
     Autor: Brandon Sepulveda
-    Version: 11.3
+    Version: 11.4
     Requiere: Windows PowerShell 5.1, ejecutándose como Administrador.
     IMPORTANTE: guardar este archivo como UTF-8 SIN BOM. Con BOM falla al instalarlo con
     "irm | iex" en PowerShell 5.1. El arranque detecta los acentos dañados y se relanza bien.
@@ -23,7 +23,7 @@
 [CmdletBinding()]
 param([switch]$DryRun, [string]$IsoPath, [switch]$TempCopy)
 
-$script:AppVersion = '11.3'
+$script:AppVersion = '11.4'
 $script:ReleaseUrl = 'https://github.com/BrandonSepulveda/WinDeploy/releases/latest/download/WinDeployBS.ps1'
 
 #region --- Arranque: administrador, 64 bits, Windows PowerShell en STA, texto bien decodificado ---
@@ -470,6 +470,39 @@ $script:WorkerScript = {
         param([string]$Text, [int]$Count = 6)
         $lines = @($Text -split "`r?`n" | Where-Object { $_.Trim() })
         return (($lines | Select-Object -Last $Count) -join "`n")
+    }
+
+    # Copia un archivo grande contando los bytes escritos. Robocopy reserva el tamaño
+    # completo al empezar, así que el espacio ocupado no sirve para medir su avance.
+    function Copy-LargeFile {
+        param([string]$Source, [string]$Destination, [scriptblock]$OnProgress)
+        $buffer = New-Object byte[] (8MB)
+        $reader = New-Object IO.FileStream($Source, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read, 1MB, [IO.FileOptions]::SequentialScan)
+        try {
+            $writer = New-Object IO.FileStream($Destination, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None, 1MB, [IO.FileOptions]::SequentialScan)
+            try {
+                $writer.SetLength($reader.Length)
+                $done = [int64]0
+                $lastTick = [Environment]::TickCount
+                while (($read = $reader.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    $writer.Write($buffer, 0, $read)
+                    $done += $read
+                    if ([Environment]::TickCount - $lastTick -ge 500) {
+                        $lastTick = [Environment]::TickCount
+                        if ($Sync.Cancel) { throw 'Cancelado por el usuario.' }
+                        if ($OnProgress) { & $OnProgress $done }
+                    }
+                }
+                $writer.Flush($true)
+            } finally { $writer.Dispose() }
+        } finally { $reader.Dispose() }
+        return $done
+    }
+
+    function Format-Speed {
+        param([int64]$Bytes, [double]$Seconds)
+        if ($Seconds -lt 0.5) { $Seconds = 0.5 }
+        return ('{0:N2} GB en {1:N0} s ({2:N0} MB/s)' -f ($Bytes / 1GB), $Seconds, ($Bytes / 1MB / $Seconds))
     }
 
     function Invoke-DiskPart {
@@ -1006,20 +1039,45 @@ $oobePass
             if ($createdVolume.FileSystemLabel -ne $Options.PartitionLabel) { throw "${newLetter}: no es la partición nueva (etiqueta '$($createdVolume.FileSystemLabel)')." }
 
             Set-Status 'Copiando archivos de instalación...' 15
-            $isoBytes = [int64](Get-DiskImage -ImagePath $Options.IsoPath).Size
+            # La imagen de instalación (install.wim/.esd) es casi toda la ISO: se copia aparte
+            # para que la barra y la velocidad sean reales. Las imágenes divididas (.swm) van con robocopy.
+            $bigImage = Get-InstallImagePath $sourceRoot
+            if ($bigImage -and [IO.Path]::GetExtension($bigImage) -eq '.swm') { $bigImage = $null }
+            $bigBytes = if ($bigImage) { [int64](Get-Item -LiteralPath $bigImage).Length } else { [int64]0 }
+            $sourceBytes = [int64]0
+            foreach ($file in @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force -ErrorAction SilentlyContinue)) { $sourceBytes += $file.Length }
+            if ($sourceBytes -le $bigBytes) { $sourceBytes = [int64](Get-DiskImage -ImagePath $Options.IsoPath).Size }
+            $restBytes = [Math]::Max([int64]1, $sourceBytes - $bigBytes)
+            $showCopy = {
+                param([int64]$CopiedBytes, [double]$Seconds)
+                $fraction = [Math]::Min(1.0, [Math]::Max(0.0, $CopiedBytes / [double]$sourceBytes))
+                $speed = if ($Seconds -ge 1) { ' - {0:N0} MB/s' -f ($CopiedBytes / 1MB / $Seconds) } else { '' }
+                $Sync.Percent = 15 + [int]($fraction * 65)
+                $Sync.Status = ('Copiando archivos de instalación... {0:P0}' -f $fraction) + $speed
+            }
             $destinationDrive = New-Object IO.DriveInfo $newLetter
             $baselineUsed = $destinationDrive.TotalSize - $destinationDrive.AvailableFreeSpace
+            $copyClock = [Diagnostics.Stopwatch]::StartNew()
             $copyTick = {
                 $probe = New-Object IO.DriveInfo $newLetter
-                $copied = ($probe.TotalSize - $probe.AvailableFreeSpace) - $baselineUsed
-                $fraction = [Math]::Min(1.0, [Math]::Max(0.0, $copied / [double]$isoBytes))
-                $Sync.Percent = 15 + [int]($fraction * 65)
-                $Sync.Status = 'Copiando archivos de instalación... {0:P0}' -f $fraction
+                $used = [Math]::Min($restBytes, [Math]::Max([int64]0, ($probe.TotalSize - $probe.AvailableFreeSpace) - $baselineUsed))
+                & $showCopy $used $copyClock.Elapsed.TotalSeconds
             }
+            $exclude = if ($bigImage) { ' /XF ' + [IO.Path]::GetFileName($bigImage) } else { '' }
             # Sin comillas: una ruta "E:\" entre comillas rompe los argumentos de robocopy.
-            $copy = Invoke-Native -FilePath (Get-NativeTool 'robocopy.exe') -Arguments "$sourceRoot $destinationRoot /E /R:2 /W:3 /XJ /NP /NFL /NDL /NJH /NJS" -OnTick $copyTick -TimeoutMinutes 120 -Cancellable
-            Write-Log "robocopy código=$($copy.ExitCode)"
+            $copy = Invoke-Native -FilePath (Get-NativeTool 'robocopy.exe') -Arguments "$sourceRoot $destinationRoot /E /R:2 /W:3 /XJ /NP /NFL /NDL /NJH /NJS$exclude" -OnTick $copyTick -TimeoutMinutes 120 -Cancellable
+            $restSeconds = $copyClock.Elapsed.TotalSeconds
+            Write-Log "robocopy código=$($copy.ExitCode): $(Format-Speed $restBytes $restSeconds)"
             if ($copy.ExitCode -ge 8) { throw "Robocopy falló al copiar (código $($copy.ExitCode)).`n$(Get-LastLines $copy.Output)" }
+            if ($bigImage) {
+                $imageName = 'sources\' + [IO.Path]::GetFileName($bigImage)
+                Write-Log "Copiando $imageName ($('{0:N2}' -f ($bigBytes / 1GB)) GB)..."
+                $imageClock = [Diagnostics.Stopwatch]::StartNew()
+                $imageProgress = { param([int64]$Done) & $showCopy ($restBytes + $Done) $copyClock.Elapsed.TotalSeconds }
+                [void](Copy-LargeFile -Source $bigImage -Destination (Join-Path $destinationRoot $imageName) -OnProgress $imageProgress)
+                Write-Log "$imageName copiado: $(Format-Speed $bigBytes $imageClock.Elapsed.TotalSeconds)"
+            }
+            Write-Log "Copia total: $(Format-Speed $sourceBytes $copyClock.Elapsed.TotalSeconds)"
 
             Set-Status 'Verificando la copia...' 82
             $missing = @(Get-IsoLayoutProblems $destinationRoot)
